@@ -13,7 +13,6 @@
 #include <ESPmDNS.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
-#include <EEPROM.h>
 #include <credentials.h>
 
 #define BUILTIN_LED 2
@@ -21,7 +20,7 @@
 #define OUTTOPIC "water"
 #define IRPIN 33
 
-//#define DEBUG
+#define DEBUG
 
 // Update these with values suitable for your network.
 
@@ -36,24 +35,13 @@ int irMiddle;
 int irMax = 0;
 unsigned long entry = millis();
 int machineStat = 0;
-unsigned long currentMeasurement, lastMeasurement;
-float consumption;
-
-int addr = 0;
-#define EEPROM_SIZE 10
-
-struct eepromLayout
-{
-  int magicNumber;
-  unsigned long value;
-} eepromContent;
+int consumption;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
-unsigned long lastMsg = 0;
+
 #define MSG_BUFFER_SIZE	(200)
 char msg[MSG_BUFFER_SIZE];
-int value = 0;
 
 void setup_wifi() {
 
@@ -123,34 +111,12 @@ void reconnect() {
 }
 
 void incrementTicks() {
-  currentMeasurement = millis();
-  Serial.println("Increment");
-  digitalWrite(BUILTIN_LED, HIGH);   // Turn the LED on (Note that LOW is the voltage level
-  delay(500);
-  digitalWrite(BUILTIN_LED, LOW);  // Turn the LED off by making the voltage HIGH
-  waterTicks++;
-  if (waterTicks % 2 == 0) {
-    if (currentMeasurement - lastMeasurement > 0) consumption = 2000.0 / (currentMeasurement - lastMeasurement);  // two ticks divided by the time between the two ticks; protect against division by zero
-    else consumption = 0.0;
-    Serial.println(consumption);
-
-    snprintf (msg, MSG_BUFFER_SIZE, "{\"consumption\":%lf, \"total\":%ld}", consumption, waterTicks);
-    Serial.print("Water ");
-    Serial.println(msg);
-    client.publish(OUTTOPIC"/value", msg);
-    lastMeasurement = currentMeasurement;
-  }
-
-  if (((waterTicks % 1000) == 0)) {
-    snprintf (msg, MSG_BUFFER_SIZE, "Stored %ld", waterTicks);
-    Serial.print("Store in eeprom ");
-    Serial.println(msg);
-    client.publish(OUTTOPIC"/debug", msg);
-
-    eepromContent.value = waterTicks;
-    EEPROM.put(0, eepromContent);
-    EEPROM.commit();
-  }
+  consumption = 1;
+  Serial.println(consumption);
+  snprintf (msg, MSG_BUFFER_SIZE, "{\"consumption\":%ld}", consumption);
+  Serial.print("Water ");
+  Serial.println(msg);
+  client.publish(OUTTOPIC"/value", msg);
 }
 
 void setup() {
@@ -194,26 +160,6 @@ void setup() {
   Serial.println(WiFi.localIP());
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
-
-  if (!EEPROM.begin(EEPROM_SIZE))
-  {
-    Serial.println("failed to initialise EEPROM");
-    delay(1000);
-    ESP.restart();
-  }
-  EEPROM.get(0, eepromContent);
-  if (eepromContent.magicNumber != 0x55) {
-    Serial.println("EEprom Corrupted");
-    eepromContent.magicNumber = 0x55;
-    eepromContent.value =  1591001;
-    EEPROM.put(0, eepromContent);
-    EEPROM.commit();
-  }
-  else waterTicks = eepromContent.value;
-  Serial.print("Stored consumption ");
-  Serial.println(waterTicks);
-  currentMeasurement = millis();
-  lastMeasurement = currentMeasurement;
 }
 
 void loop() {
@@ -226,6 +172,9 @@ void loop() {
   if (millis() - entry > 500) {
     entry = millis();
     irLevel = analogRead(IRPIN);
+
+    irMax=irMax-10; // for longterm adjustment
+    irMin=irMin+10;
 
     if (irLevel > irMax) irMax = irLevel;   // maximum signal
     if (irLevel < irMin) irMin = irLevel;   // minimum signal
@@ -248,28 +197,28 @@ void loop() {
 
     switch (machineStat) {
       case 0:
-        if ((diff < 2) && (irLevel > (irMiddle + 100))) {
+        if ((diff < 0) && (irLevel > irMiddle)) {
           incrementTicks();
           machineStat = 1;
         }
         digitalWrite(BUILTIN_LED, LOW);
         break;
       case 1:
-        if ((diff > 10) && irLevel < irMiddle - 100) machineStat = 2;
+        if ((diff <0) && (irLevel < irMiddle)) machineStat = 2;
         digitalWrite(BUILTIN_LED, HIGH);
         break;
       case 2:
-        if ((diff < 2) && (irLevel < (irMiddle - 100))) machineStat = 3;
+        if ((diff > 0) && (irLevel < irMiddle)) machineStat = 3;
         digitalWrite(BUILTIN_LED, LOW);
         break;
       case 3:
-        if (diff > 10 && irLevel > irMiddle + 100) machineStat = 0;
+        if (diff > 0 && (irLevel > irMiddle)) machineStat = 0;
         digitalWrite(BUILTIN_LED, HIGH);
         break;
     }
 
 #ifdef DEBUG
-    snprintf (msg, MSG_BUFFER_SIZE, "Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, Stat %ld, Ticks %ld", irMin, irMiddle, irMax, irLevel, diff, machineStat, waterTicks);
+    snprintf (msg, MSG_BUFFER_SIZE, "Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, Stat %ld", irMin, irMiddle, irMax, irLevel, diff, machineStat);
     client.publish(OUTTOPIC"/debug", msg);
 #endif
     lastLevel = irLevel;
