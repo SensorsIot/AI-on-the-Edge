@@ -34,7 +34,7 @@ int irMin = 9999;
 int irMiddle;
 int irMax = 0;
 unsigned long entry = millis();
-int machineStat = 0;
+int machineStat, lastMaschStat;
 int consumption;
 
 WiFiClient espClient;
@@ -222,8 +222,11 @@ void loop() {
     }
 
 #ifdef DEBUG
-    snprintf (msg, MSG_BUFFER_SIZE, "Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, Stat %ld", irMin, irMiddle, irMax, irLevel, diff, machineStat);
-    client.publish(OUTTOPIC"/debug", msg);
+    if (machineStat != lastMaschStat) {
+      snprintf (msg, MSG_BUFFER_SIZE, "Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, Stat %ld", irMin, irMiddle, irMax, irLevel, diff, machineStat);
+      client.publish(OUTTOPIC"/debug", msg);
+      lastMaschStat = machineStat;
+    }
 #endif
     lastLevel = irLevel;
   }
