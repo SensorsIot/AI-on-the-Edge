@@ -173,8 +173,6 @@ void loop() {
     entry = millis();
     irLevel = analogRead(IRPIN);
 
-    irMax=irMax-10; // for longterm adjustment
-    irMin=irMin+10;
 
     if (irLevel > irMax) irMax = irLevel;   // maximum signal
     if (irLevel < irMin) irMin = irLevel;   // minimum signal
@@ -204,7 +202,10 @@ void loop() {
         digitalWrite(BUILTIN_LED, LOW);
         break;
       case 1:
-        if ((diff <0) && (irLevel < irMiddle)) machineStat = 2;
+        if ((diff < 0) && (irLevel < irMiddle)) {
+          irMax = irMax - 100; // for longterm adjustment
+          machineStat = 2;
+        }
         digitalWrite(BUILTIN_LED, HIGH);
         break;
       case 2:
@@ -212,7 +213,10 @@ void loop() {
         digitalWrite(BUILTIN_LED, LOW);
         break;
       case 3:
-        if (diff > 0 && (irLevel > irMiddle)) machineStat = 0;
+        if (diff > 0 && (irLevel > irMiddle)) {
+          irMin = irMin + 100; // long-term adjustment
+          machineStat = 0;
+        }
         digitalWrite(BUILTIN_LED, HIGH);
         break;
     }
