@@ -27,13 +27,15 @@
 const char* ssid = mySSID;
 const char* password = myPASSWORD;
 const char* mqtt_server = "192.168.0.203";
+int wifiTrials, mqttTrials = 0;
+RTC_DATA_ATTR int bootCount;
 
 int waterTicks, lastTicks;
 int irLevel, lastLevel, diff, lastDiff;
 int irMin = 9999;
 int irMiddle;
 int irMax = 0;
-unsigned long entry = millis();
+unsigned long entry, lastaliveMessage;
 int machineStat, lastMaschStat;
 int consumption;
 
@@ -53,11 +55,14 @@ void setup_wifi() {
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
+  wifiTrials = 0;
+  while (WiFi.status() != WL_CONNECTED && wifiTrials < 50) {
     delay(500);
+    wifiTrials++;
     Serial.print(".");
   }
+
+  if (wifiTrials >= 100) ESP.restart();
 
   randomSeed(micros());
 
@@ -88,7 +93,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 void reconnect() {
   // Loop until we're reconnected
-  while (!client.connected()) {
+  mqttTrials = 0;
+  while (!client.connected() && (mqttTrials < 5)) {
     Serial.print("Attempting MQTT connection...");
     // Create a random client ID
     String clientId = "ESP8266Client-";
@@ -97,7 +103,7 @@ void reconnect() {
     if (client.connect(clientId.c_str())) {
       Serial.println("connected");
       // Once connected, publish an announcement...
-      client.publish(OUTTOPIC"/debug", "hello world");
+      client.publish(OUTTOPIC"/debug", "Booted");
       // ... and resubscribe
       client.subscribe("inTTopic");
     } else {
@@ -107,7 +113,11 @@ void reconnect() {
       // Wait 5 seconds before retrying
       delay(5000);
     }
+    mqttTrials++;
+    Serial.print("mqttTrials: ");
+    Serial.println(mqttTrials);
   }
+  if (mqttTrials >= 5) ESP.restart();
 }
 
 void incrementTicks() {
@@ -123,6 +133,11 @@ void setup() {
   pinMode(BUILTIN_LED, OUTPUT);     // Initialize the BUILTIN_LED pin as an output
   Serial.begin(115200);
   delay(1000);
+  ++bootCount;
+  Serial.println("Boot number: " + String(bootCount));
+
+  Serial.print("irMin: ");
+  Serial.println(irMin);
 
   digitalWrite(BUILTIN_LED, HIGH);
   setup_wifi();
@@ -160,6 +175,8 @@ void setup() {
   Serial.println(WiFi.localIP());
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
+  entry = millis();
+  lastaliveMessage = millis();
 }
 
 void loop() {
@@ -172,25 +189,19 @@ void loop() {
   if (millis() - entry > 500) {
     entry = millis();
     irLevel = analogRead(IRPIN);
+    Serial.print("irLevel: ");
+    Serial.println(irLevel);
 
 
     if (irLevel > irMax) irMax = irLevel;   // maximum signal
     if (irLevel < irMin) irMin = irLevel;   // minimum signal
     irMiddle = (irMax + irMin) / 2;   // calculate middle of the signal
     diff = irLevel - lastLevel;  // first derivative (averaged)
+    lastLevel = irLevel;
 
 #ifdef DEBUG
-    Serial.print(irMin);
-    Serial.print(" ");
-    Serial.print(irMiddle);
-    Serial.print(" ");
-    Serial.print(irMax);
-    Serial.print(" ");
-    Serial.print(diff);
-    Serial.print(" ");
-    Serial.print(irLevel);
-    Serial.print(" ");
-    Serial.println(machineStat);
+    snprintf (msg, MSG_BUFFER_SIZE, "Debug Message: Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, Stat %ld", irMin, irMiddle, irMax, irLevel, diff, machineStat);
+    Serial.println(msg);
 #endif
 
     switch (machineStat) {
@@ -223,11 +234,15 @@ void loop() {
 
 #ifdef DEBUG
     if (machineStat != lastMaschStat) {
-      snprintf (msg, MSG_BUFFER_SIZE, "Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, Stat %ld", irMin, irMiddle, irMax, irLevel, diff, machineStat);
+      snprintf (msg, MSG_BUFFER_SIZE, "Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, Boot %ld,Stat %ld", irMin, irMiddle, irMax, irLevel, diff, bootCount, machineStat);
       client.publish(OUTTOPIC"/debug", msg);
       lastMaschStat = machineStat;
     }
 #endif
-    lastLevel = irLevel;
+    if (millis() > (lastaliveMessage + 30*60*1000)) {
+      lastaliveMessage = millis();
+      snprintf (msg, MSG_BUFFER_SIZE, "Alive Message: Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, Boot %ld, Stat %ld, ", irMin, irMiddle, irMax, irLevel, diff, bootCount, machineStat);
+      client.publish(OUTTOPIC"/debug", msg);
+    }
   }
 }
