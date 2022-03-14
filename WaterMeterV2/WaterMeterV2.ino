@@ -14,6 +14,7 @@
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <credentials.h>
+#include <ArduinoJson.h>
 
 #define BUILTIN_LED 2
 
@@ -44,6 +45,7 @@ PubSubClient client(espClient);
 
 #define MSG_BUFFER_SIZE	(200)
 char msg[MSG_BUFFER_SIZE];
+char msg1[MSG_BUFFER_SIZE];
 
 void setup_wifi() {
 
@@ -102,14 +104,19 @@ void reconnect() {
     // Attempt to connect
     if (client.connect(clientId.c_str())) {
       Serial.println("connected");
-      // Once connected, publish an announcement...
-      client.publish(OUTTOPIC"/debug", "Booted");
+      StaticJsonDocument<200> doc;
+      doc["messageType"] = "X";
+      serializeJsonPretty(doc, Serial);
+      serializeJsonPretty(doc, msg);
+      client.publish(OUTTOPIC"/debug", msg);
       // ... and resubscribe
       client.subscribe("inTTopic");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
+      Serial.print("RSSI: ");
+      Serial.println(WiFi.RSSI());
       // Wait 5 seconds before retrying
       delay(5000);
     }
@@ -122,22 +129,31 @@ void reconnect() {
 
 void incrementTicks() {
   consumption = 1;
-  Serial.println(consumption);
-  snprintf (msg, MSG_BUFFER_SIZE, "{\"consumption\":%ld}", consumption);
-  Serial.print("Water ");
-  Serial.println(msg);
+  /*
+    Serial.println(consumption);
+    snprintf (msg, MSG_BUFFER_SIZE, "{\"consumption\":%ld}", consumption);
+    Serial.print("Water ");
+    Serial.println(msg);
+    client.publish(OUTTOPIC"/value", msg);
+  */
+
+  StaticJsonDocument<200> doc;
+  lastaliveMessage = millis();
+  doc["messageType"] = "C";
+  doc["consumption"] = consumption;
+  serializeJsonPretty(doc, Serial);
+  for (int i = 0; i < MSG_BUFFER_SIZE; i++)msg[i] = 0;
+  serializeJsonPretty(doc, msg);
   client.publish(OUTTOPIC"/value", msg);
+  lastaliveMessage = millis();
 }
 
 void setup() {
   pinMode(BUILTIN_LED, OUTPUT);     // Initialize the BUILTIN_LED pin as an output
   Serial.begin(115200);
   delay(1000);
-  ++bootCount;
+  bootCount++;
   Serial.println("Boot number: " + String(bootCount));
-
-  Serial.print("irMin: ");
-  Serial.println(irMin);
 
   digitalWrite(BUILTIN_LED, HIGH);
   setup_wifi();
@@ -189,10 +205,6 @@ void loop() {
   if (millis() - entry > 500) {
     entry = millis();
     irLevel = analogRead(IRPIN);
-    Serial.print("irLevel: ");
-    Serial.println(irLevel);
-
-
     if (irLevel > irMax) irMax = irLevel;   // maximum signal
     if (irLevel < irMin) irMin = irLevel;   // minimum signal
     irMiddle = (irMax + irMin) / 2;   // calculate middle of the signal
@@ -200,8 +212,8 @@ void loop() {
     lastLevel = irLevel;
 
 #ifdef DEBUG
-    snprintf (msg, MSG_BUFFER_SIZE, "Debug Message: Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, Stat %ld", irMin, irMiddle, irMax, irLevel, diff, machineStat);
-    Serial.println(msg);
+    snprintf (msg1, MSG_BUFFER_SIZE, "Alive Message: Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, RSSI %ld, Boot %ld, Stat %ld, ", irMin, irMiddle, irMax, irLevel, diff, WiFi.RSSI(), bootCount, machineStat);
+    Serial.println(msg1);
 #endif
 
     switch (machineStat) {
@@ -230,19 +242,46 @@ void loop() {
         }
         digitalWrite(BUILTIN_LED, HIGH);
         break;
+      default:
+        break;
     }
-
+  }
 #ifdef DEBUG
-    if (machineStat != lastMaschStat) {
-      snprintf (msg, MSG_BUFFER_SIZE, "Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, Boot %ld,Stat %ld", irMin, irMiddle, irMax, irLevel, diff, bootCount, machineStat);
-      client.publish(OUTTOPIC"/debug", msg);
-      lastMaschStat = machineStat;
-    }
+  if (machineStat != lastMaschStat) {
+    StaticJsonDocument<200> doc;
+    lastaliveMessage = millis();
+    doc["messageType"] = "D";
+    doc["min"] = irMin;
+    doc["middle"] = irMiddle;
+    doc["max"] = irMax;
+    doc["level"] = irLevel;
+    doc["diff"] = diff;
+    doc["RSSI"] = WiFi.RSSI();
+    doc["boot"] = bootCount;
+    doc["Stat"] = machineStat;
+    serializeJsonPretty(doc, Serial);
+    serializeJsonPretty(doc, msg);
+    client.publish(OUTTOPIC"/debug", msg);
+    lastaliveMessage = millis();
+    lastMaschStat = machineStat;
+  }
 #endif
-    if (millis() > (lastaliveMessage + 30*60*1000)) {
-      lastaliveMessage = millis();
-      snprintf (msg, MSG_BUFFER_SIZE, "Alive Message: Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, Boot %ld, Stat %ld, ", irMin, irMiddle, irMax, irLevel, diff, bootCount, machineStat);
-      client.publish(OUTTOPIC"/debug", msg);
-    }
+
+  if (millis() > (lastaliveMessage + 1 * 60 * 1000)) {
+    StaticJsonDocument<200> doc;
+    doc["messageType"] = "A";
+    doc["min"] = irMin;
+    doc["middle"] = irMiddle;
+    doc["max"] = irMax;
+    doc["level"] = irLevel;
+    doc["diff"] = diff;
+    doc["RSSI"] = WiFi.RSSI();
+    doc["boot"] = bootCount;
+    doc["Stat"] = machineStat;
+    serializeJsonPretty(doc, Serial);
+    for (int i = 0; i < MSG_BUFFER_SIZE; i++) msg[i] = 0;
+    serializeJsonPretty(doc, msg);
+    client.publish(OUTTOPIC"/debug", msg);
+    lastaliveMessage = millis();
   }
 }
