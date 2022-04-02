@@ -48,7 +48,6 @@ char msg[MSG_BUFFER_SIZE];
 char msg1[MSG_BUFFER_SIZE];
 
 void setup_wifi() {
-
   delay(10);
   // We start by connecting to a WiFi network
   Serial.println();
@@ -98,6 +97,7 @@ void reconnect() {
   mqttTrials = 0;
   while (!client.connected() && (mqttTrials < 5)) {
     Serial.print("Attempting MQTT connection...");
+    Serial.print("Attempting MQTT connection...");
     // Create a random client ID
     String clientId = "ESP8266Client-";
     clientId += String(random(0xffff), HEX);
@@ -118,9 +118,9 @@ void reconnect() {
     mqttTrials++;
     Serial.print("mqttTrials: ");
     Serial.println(mqttTrials);
+    publishDebugMessage('Y');
+    if (mqttTrials >= 5) ESP.restart();
   }
-  publishDebugMessage('X');
-  if (mqttTrials >= 5) ESP.restart();
 }
 
 void incrementTicks() {
@@ -165,7 +165,6 @@ int readIR() {
 void setup() {
   pinMode(BUILTIN_LED, OUTPUT);     // Initialize the BUILTIN_LED pin as an output
   Serial.begin(115200);
-  delay(1000);
   bootCount++;
   Serial.println("Boot number: " + String(bootCount));
 
@@ -208,6 +207,7 @@ void setup() {
   entry = millis();
   lastaliveMessage = millis();
   irLevel = readIR();
+  delay(1000);
 }
 
 void loop() {
@@ -225,11 +225,7 @@ void loop() {
   if (millis() - entry > 500) {
     entry = millis();
     lastLevel = irLevel;
-
-#ifdef DEBUG
-    snprintf (msg1, MSG_BUFFER_SIZE, "Alive Message: Min %ld, Middle %ld, Max %ld, Level %ld, diff %ld, RSSI %ld, Boot %ld, Stat %ld, ", irMin, irMiddle, irMax, irLevel, diff, WiFi.RSSI(), bootCount, machineStat);
-    Serial.println(msg1);
-#endif
+     publishDebugMessage('D');
 
     switch (machineStat) {
       case 0:
